@@ -268,8 +268,8 @@ def Fab300_iio_merger(df):
     With_DOWN["Index3"] = np.where(
         (With_DOWN['Fab300_Res_id']==With_DOWN['Fab300_Res_id_DOWN'])
         | (With_DOWN['IIO_Res_id']==With_DOWN['IIO_Res_id_DOWN']), 
-        With_DOWN['Index'], 
-        np.nan
+        np.nan,
+         With_DOWN['Index']
     )
 
 
