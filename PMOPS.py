@@ -34,13 +34,24 @@ def identify_reservations(df):
 
         PivotedColumn1 = RemovedColumns1.pivot(index=['FO_ROW_ID','IndexShift_1'],columns='ResProperty_1',values='value').reset_index()
 
-        FilteredRows01 = PivotedColumn1[(PivotedColumn1["ResWBS_Start"].notnull() & PivotedColumn1['ResWBS_Start'].str.len() > 0)]
-
+        if "ResWBS_Start" in PivotedColumn1.columns:
+            FilteredRows01 = PivotedColumn1[(PivotedColumn1["ResWBS_Start"].notnull() & PivotedColumn1['ResWBS_Start'].str.len() > 0)]
+        else:
+            #empty dataframe
+            FilteredRows01 = pd.DataFrame(columns=PivotedColumn1.columns)
+            
+        
         RemovedColumns2 = AddedCustom4.drop(columns=["Index", "IndexShift_1", "variable", "ResProperty_1"])
         PivotedColumn2 = RemovedColumns2.pivot(index=['FO_ROW_ID','IndexShift_2'],columns='ResProperty_2',values='value').reset_index()
 
         FilteredRows02 = PivotedColumn2[(PivotedColumn2["ResWBS_Start"].notnull() & PivotedColumn2['ResWBS_Start'].str.len() > 0)]
-
+        
+        if "ResWBS_Start" in PivotedColumn2.columns:
+            FilteredRows02 = PivotedColumn2[(PivotedColumn2["ResWBS_Start"].notnull() & PivotedColumn2['ResWBS_Start'].str.len() > 0)]
+        else:
+            #empty dataframe
+            FilteredRows02 = pd.DataFrame(columns=PivotedColumn2.columns)
+        
         columns = [
             'FO_ROW_ID', 
             'DATE_TIME_STAMP_End',
@@ -54,8 +65,16 @@ def identify_reservations(df):
             'USER_ID_End',
             'USER_ID_Start'
         ]
-        FilteredRows01 = FilteredRows01[columns]
-        FilteredRows02 = FilteredRows01[columns]
+            
+            
+        if FilteredRows01.shape[0] == 0:
+            combined = FilteredRows02[columns]
+        elif FilteredRows02.shape[0] == 0:
+            combined = FilteredRows01[columns]
+        else:
+            FilteredRows01 = FilteredRows01[columns]
+            FilteredRows02 = FilteredRows02[columns]
+        
         combined = pd.concat([FilteredRows01,FilteredRows02])
 
         combined = combined.rename(
@@ -144,9 +163,8 @@ def FAB300_with_tool_names(Tools_with_reservations,Tools_Parents):
     Fab300_Res_id = range(0,len(Expanded_Tools_parents_filteredRows))
     Expanded_Tools_parents_filteredRows["Fab300_Res_id"] = Fab300_Res_id
     Expanded_Tools_parents_filteredRows = Expanded_Tools_parents_filteredRows[
-        (
-            Expanded_Tools_parents_filteredRows["Tool"].notnull() & 
-            Expanded_Tools_parents_filteredRows['Tool'].str.len() > 0)
+        (Expanded_Tools_parents_filteredRows["Tool"].notnull())
+        & (Expanded_Tools_parents_filteredRows['Tool'].str.len() > 0)
     ]
     columns = [
         "FO_ROW_ID",
