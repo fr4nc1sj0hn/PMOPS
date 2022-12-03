@@ -545,6 +545,209 @@ def Final_Fab300_IIO_reservations(IIO_without_modules,Fab300withtoolnames,Fab300
     return AppendedQuery3
 
 
+def GetOverlapIndicator(row):
+    if (row["Scanners.Begin"] is pd.NaT):
+        return "No overlap"
+    else:
+        if row["Scanners.Begin"] < row["End"] and row["Scanners.End"] > row["Begin"]:
+            if row["Begin"] > row["Scanners.Begin"] and row["End"] < row["Scanners.End"]:
+                return "Useful overlap"
+            else:
+                return "Ignore overlap"
+        else:
+            return "No overlap"
+
+
+def CheckForOverlaps(df):
+    Removed_Duplicates = df["Overlap"].unique()
+    nb_of_rows = Removed_Duplicates.shape[0]
+    FirstValue = Removed_Duplicates[0]
+
+    if (nb_of_rows == 1) and (FirstValue == "No overlap"):
+        return True 
+
+    return False
+
+def GetMinDate(row,col1, col2):
+    if (row[col1] is pd.NaT and row[col2] is not pd.NaT):
+        return row[col2]
+    elif (row[col1] is not pd.NaT and row[col2] is pd.NaT):
+        return row[col1]
+    else:
+        if row[col1] < row[col2]:
+            return row[col1]
+        else:
+            return row[col2]
+        
+def GetMaxDate(row,col1, col2):
+    if (row[col1] is pd.NaT and row[col2] is not pd.NaT):
+        return row[col2]
+    elif (row[col1] is not pd.NaT and row[col2] is pd.NaT):
+        return row[col1]
+    else:
+        if row[col1] < row[col2]:
+            return row[col2]
+        else:
+            return row[col1]
+
+
+def Final_Fab300_IIO_Reservations_clustered(df):
+    MergedQueries = Final_Fab300_IIO_reservations.merge(
+        LithoClusters, 
+        how='left',
+        left_on = ["Tool"],
+        right_on = ["ToolName"]
+    )
+
+    print("MergedQueries", MergedQueries.shape)
+    MergedQueries = MergedQueries.drop(columns=["ToolName"])
+
+    SC_TR_filt = MergedQueries[
+        (MergedQueries["LithoCluster"].notnull())
+        & (MergedQueries["LithoCluster"] != "")
+    ]
+
+    SC_filt = SC_TR_filt[
+        SC_TR_filt["Tool"].str.startswith("SC")
+    ]
+    SC_filt['Tool'] = SC_filt['Tool'].str.replace('SC','LithoCluster_')
+    SC_to_Cluster = SC_filt.copy()
+    SC_index = SC_to_Cluster.copy()
+
+
+    index = range(0,len(SC_index))
+    SC_index["id"] = index
+
+
+    TR_filt = SC_TR_filt[
+        SC_TR_filt["Tool"].str.startswith("TR")
+    ]
+    TR_index = TR_filt.copy()
+    index2 = range(0,len(TR_index))
+    TR_index["id"] = index2
+
+
+    SC_index_sub = SC_index[
+        [
+            "LithoCluster", "WBS","Begin", "End", "id"
+        ]
+    ]
+
+    TR_SC_Merge = TR_index.merge(
+        SC_index_sub, 
+        how='left',
+        left_on = ["LithoCluster", "WBS"],
+        right_on = ["LithoCluster", "WBS"]
+    )
+    TR_SC_Expand = TR_SC_Merge.rename(
+    columns = {
+        "Begin_y":"Scanners.Begin",
+        "End_y":"Scanners.End",
+        "Begin_x":"Begin",
+        "End_x":"End",
+        "id_y":"Scanners.id",
+        "id_x":"id",
+        "Cluster_x": "Cluster",
+        'Description_x':"Description",
+        'Fab300_Duration_x':"Fab300_Duration",
+        'Fab300_User_id_x':"Fab300_User_id", 
+        'FACILITY_x':"FACILITY", 
+        'IIO_Duration_x':"IIO_Duration", 
+        'IIO_User_id_x':"IIO_User_id",
+        'Modules_x':"Modules", 
+        'Tool_x':"Tool"
+        
+    })
+
+    TR_SC_ovl_info = TR_SC_Expand.copy()
+    TR_SC_ovl_info["Overlap"]  = TR_SC_ovl_info.apply(lambda row: GetOverlapIndicator(row),axis=1)
+
+    collated = pd.DataFrame(columns=[
+        'Begin', 
+        'Cluster', 
+        'Description', 
+        'End', 
+        'Fab300_Duration',
+        'Fab300_User_id', 
+        'FACILITY', 
+        'IIO_Duration', 
+        'IIO_User_id', 
+        'Modules',
+        'Tool', 
+        'WBS', 
+        'LithoCluster', 
+        'id', 
+        'Scanners.Begin', 
+        'Scanners.End',
+        'Scanners.id', 
+        'Overlap',
+        'Independent'
+    ])
+
+
+    ids = TR_SC_ovl_info["id"].unique()
+
+    for id in ids:
+        grp = TR_SC_ovl_info[TR_SC_ovl_info["id"] == id]
+        grp["Independent"] = CheckForOverlaps(grp)
+        
+        collated = pd.concat([collated,grp])
+
+    TR_pure = collated[collated["Independent"] == True]
+    TR_pure = TR_pure[["id"]]
+
+    TR_merge  = TR_pure.merge(
+        TR_index, 
+        how='inner',
+        left_on = ["id"],
+        right_on = ["id"]
+    )
+    TR_rmv = TR_merge.drop(columns=["id"])
+
+
+    SC_filt_2 = TR_SC_ovl_info[
+        (TR_SC_ovl_info["Overlap"] != "No overlap")
+        & (TR_SC_ovl_info["Overlap"] != "Ignore overlap")
+    ]
+    SC_TR_columns = SC_filt_2[["Cluster", "Begin", "End", "Scanners.id"]]
+
+    SC_TR_columns2 = SC_TR_columns[
+        [
+            "Scanners.id",
+            "Begin", 
+            "End", 
+            "Cluster"
+        ]
+    ]
+
+    SC_pure = SC_index.merge(
+        SC_TR_columns2, 
+        how='left',
+        left_on = ["id"],
+        right_on = ["Scanners.id"]
+    )
+    SC_rename = SC_pure.rename(
+    columns={
+        "Begin_y": "TR_Begin", 
+        "End_y": "TR_End", 
+        "Begin_x": "SC_Begin", 
+        "End_x": "SC_End", 
+        "Cluster_x": "Cluster",
+        "Cluster_y": "TR_Cluster",
+        
+    })
+    SC_rename["Begin"] = SC_rename.apply(lambda row: GetMinDate(row,"SC_Begin","TR_Begin"),axis=1)
+    SC_rename["End"] = SC_rename.apply(lambda row: GetMaxDate(row,"SC_End","TR_End"),axis=1)
+    SC_final = SC_rename.drop(columns=["SC_Begin", "SC_End", "id", "TR_Begin", "TR_End"])
+    NoClusters = MergedQueries[MergedQueries["LithoCluster"].isna()]
+
+    Everything = pd.concat([NoClusters, TR_rmv])
+    Everything = pd.concat([Everything,SC_final])
+    Everything.drop_duplicates()
+
+    return Everything
+
+
 
 #Start of execution
 df = pd.read_csv("Fab300_raw_reservations.csv")
@@ -628,4 +831,14 @@ for wbs in WBSs:
 #Final_Fab300_IIO_reservations
 Final_Fab300_IIO_reservations_df = Final_Fab300_IIO_reservations(df_IIO_without_modules,df_FAB300_with_tool_names,Fab300_IIO_overlaps_ids)
 
-print(Final_Fab300_IIO_reservations_df.head())
+
+#Step 14
+Final_Fab300_IIO_reservations_df["Begin"] = pd.to_datetime(Final_Fab300_IIO_reservations_df["Begin"],format="%Y-%m-%d %H:%M")
+Final_Fab300_IIO_reservations_df["End"] = pd.to_datetime(Final_Fab300_IIO_reservations_df["End"],format="%Y-%m-%d %H:%M")
+
+
+LithoClusters = pd.read_csv("C:\\Users\\fpicaso\\Repos\\PMOPS\\20221125\\LithoClusters.csv")
+
+Final_Fab300_IIO_Reservations_clustered_df = Final_Fab300_IIO_Reservations_clustered(Final_Fab300_IIO_reservations_df)
+
+print(Final_Fab300_IIO_Reservations_clustered_df.head())
