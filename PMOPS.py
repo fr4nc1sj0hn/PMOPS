@@ -748,6 +748,46 @@ def Final_Fab300_IIO_Reservations_clustered(df):
     return Everything
 
 
+def ReducedState(row):
+    if row["State"] in ["UP","PARTLY_UP","RESERVED"]:
+        return "UP"
+    elif row["State"] == "SPC_TEST":
+        return "SPC"
+    elif row["State"] == "OCAP":
+        return "OCAP"
+    else:
+        return "DOWN"
+
+
+
+def Transform_states(df,fo_row_id):
+    df["ReducedState"] = df.apply(lambda row: ReducedState(row),axis=1)
+    Removedcolumns1 = df.drop(columns=["State", "fo_row_id"])
+    RnmStateClmn = Removedcolumns1.rename(
+    columns={
+        "ReducedState": "State"
+    })
+    Sortedrows = RnmStateClmn.sort_values(by=["EVENT_ROW_ID"])
+    index =  range(0,len(Sortedrows))
+    Sortedrows["Index"] = index
+    State_DOWN_Remove = Sortedrows.drop(columns=["Datim", "Index", "EVENT_ROW_ID"]).rename(
+    columns={
+        "State": "ReducedState_DOWN"
+    })
+    Sortedrows["ReducedState_DOWN"] = Sortedrows["State"].shift(1)
+    Sortedrows["Repeated"] = np.where(Sortedrows["ReducedState_DOWN"] == Sortedrows["State"],True,False)
+    Repeated_State = Sortedrows.copy()
+    NoRepeats = Repeated_State[Repeated_State["Repeated"] == False]
+    RemoveTmpClmns = NoRepeats.drop(columns=["Index", "ReducedState_DOWN", "Repeated"])
+
+    if RemoveTmpClmns.shape[0] == 0:
+        Sortedrows["fo_row_id"] = fo_row_id
+        return Sortedrows[["fo_row_id","Datim","EVENT_ROW_ID","State"]].iloc[0:1]
+    else:
+        RemoveTmpClmns["fo_row_id"] = fo_row_id
+        return RemoveTmpClmns
+
+
 
 #Start of execution
 df = pd.read_csv("Fab300_raw_reservations.csv")
@@ -841,4 +881,25 @@ LithoClusters = pd.read_csv("C:\\Users\\fpicaso\\Repos\\PMOPS\\20221125\\LithoCl
 
 Final_Fab300_IIO_Reservations_clustered_df = Final_Fab300_IIO_Reservations_clustered(Final_Fab300_IIO_reservations_df)
 
-print(Final_Fab300_IIO_Reservations_clustered_df.head())
+
+#Tool States and Transform States
+
+tool_states = pd.read_csv("C:/Users/fpicaso/Repos/PMOPS/20221125/Tool_States.csv")
+tool_states["Datim"] = pd.to_datetime(tool_states["Datim"],format="%m/%d/%Y %H:%M")
+
+
+fo_row_ids = tool_states["fo_row_id"].unique()
+
+tool_states_result = pd.DataFrame(
+columns=[
+    "Datim",
+    "EVENT_ROW_ID",
+    "State"
+])
+
+for fo_row_id in fo_row_ids:
+    df = tool_states[tool_states["fo_row_id"] == fo_row_id]
+    tool_states_df = Transform_states(df,fo_row_id)
+    tool_states_result = pd.concat([tool_states_result,tool_states_df])
+    
+print(tool_states_result.head())
