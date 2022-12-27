@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import functools as ft
+#remove repeats
+from datetime import date,datetime
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -788,6 +790,85 @@ def Transform_states(df,fo_row_id):
         return RemoveTmpClmns
 
 
+def RemoveRepeats(df):
+    RC = df.drop(columns=["ENT_NAME","FACILITY"])
+    sorted_rows = RC.sort_values(["EVENT_ROW_ID"])
+    index = range(0,len(sorted_rows))
+    sorted_rows["Index"] = index
+    State_UP_Add_Index = sorted_rows.copy()
+    State_UP_Add_Index["Datim_UP"] = State_UP_Add_Index["Datim"].shift(-1)
+    State_UP_Add_Index["Datim_UP"] = pd.to_datetime(State_UP_Add_Index["Datim_UP"],format="%m/%d/%Y %H:%M")
+    State_UP_Add_Index["Datim"] = pd.to_datetime(State_UP_Add_Index["Datim"],format="%m/%d/%Y %H:%M")
+    ReplacedValue = State_UP_Add_Index.copy()
+    ReplacedValue["Datim_UP"] = ReplacedValue["Datim_UP"].fillna(datetime.now())
+    ReplacedValue["Duration_hrs"] = (ReplacedValue["Datim_UP"] - ReplacedValue["Datim"])/np.timedelta64(1, 'h')
+    ReplacedValue["Duration_mins"] = (ReplacedValue["Datim_UP"] - ReplacedValue["Datim"])/np.timedelta64(1, 'm')
+    FilteredRows2 = ReplacedValue[ReplacedValue["Duration_mins"] > 10]
+
+    RemovedColumns1 = FilteredRows2.drop(columns=["Index", "Datim_UP", "Duration_hrs","Duration_mins"])
+    Sortedrows1 = RemovedColumns1.sort_values(["EVENT_ROW_ID"])
+    With_DOWN_Expanded = Sortedrows1.copy()
+    With_DOWN_Expanded["State_DOWN"] = With_DOWN_Expanded["State"].shift(1)
+    With_DOWN_Expanded["Repeated"] = np.where(With_DOWN_Expanded['State']==With_DOWN_Expanded['State_DOWN'], True, False)
+    NoRepeats = With_DOWN_Expanded[With_DOWN_Expanded["Repeated"] == False]
+    RemovedColumns2 = NoRepeats.drop(columns=["State_DOWN", "Repeated"])
+    return RemovedColumns2[[
+        "EVENT_ROW_ID", 
+         "Datim", 
+         "State"
+    ]]
+
+
+def Tools_states_material_suppliers():
+    #Tool_states = pd.read_csv("20221125\Tool_States.csv")
+    #Tools_Parents = pd.read_csv("20221125\Tools_Parents.csv")
+
+
+    Expanded_Tools_parents = tool_states.merge(
+        Tools_Parents, 
+        how='inner',
+        left_on = ["fo_row_id"],
+        right_on = ["ROW_ID"],
+        indicator=True
+    )
+
+
+    Filtered_rows = Expanded_Tools_parents[
+        (Expanded_Tools_parents["ENT_NAME"].notnull())
+        & (Expanded_Tools_parents["ENT_NAME"] != "")
+    ]
+    Filtered_rows["State"] = Filtered_rows.apply(lambda row: replaceStateValueSPC(row),axis=1)
+    Filtered_rows["State"] = Filtered_rows.apply(lambda row: replaceStateValueOCAP(row),axis=1)
+
+    Removed_Columns = Filtered_rows.drop(columns=[
+        "Area", 
+        "fo_row_id",
+        "_merge",
+        "ROW_ID"
+    ])
+
+    GroupedRows = pd.DataFrame(columns=[
+        "FACILITY",
+        "ENT_NAME",
+        "EVENT_ROW_ID", 
+        "Datim", 
+        "State"
+    ])
+    facilities = Removed_Columns["FACILITY"].unique()
+
+    for facility in facilities:
+        facilitydata = Removed_Columns[Removed_Columns["FACILITY"] == facility]
+        ent_names = facilitydata["ENT_NAME"].unique()
+        
+        for ent_name in ent_names:
+            data = facilitydata[facilitydata["ENT_NAME"] == ent_name]
+            NoRepeats = RemoveRepeats(data)
+            NoRepeats["FACILITY"] = facility
+            NoRepeats["ENT_NAME"] = ent_name
+            
+            GroupedRows = pd.concat([GroupedRows,NoRepeats])
+            
+        
 
 #Start of execution
 df = pd.read_csv("Fab300_raw_reservations.csv")
