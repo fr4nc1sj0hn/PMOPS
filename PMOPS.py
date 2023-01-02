@@ -819,6 +819,34 @@ def RemoveRepeats(df):
     ]]
 
 
+def GetClusterStates(df):
+    SC = df[df["ENT_NAME"].str.startswith("SC")]
+    SC_rem_clmns = SC.drop(columns=["FACILITY", "ENT_NAME", "LithoCluster"])
+    SC_renamed = SC_rem_clmns.rename(columns={
+        "State": "State_SC"
+    })
+
+
+    TR = df[df["ENT_NAME"].str.startswith("TR")]
+    TR_rem_clmns = TR.drop(columns=["FACILITY", "ENT_NAME", "LithoCluster"])
+    TR_renamed = TR_rem_clmns.rename(columns={
+        "State": "State_TR"
+    })
+    TR_renamed
+
+    CombinedQueries = pd.concat([SC_renamed,TR_renamed])
+
+    SortedRows = CombinedQueries.sort_values(["EVENT_ROW_ID"])
+    FilledDown = SortedRows.copy()
+    FilledDown["State_SC"] = FilledDown["State_SC"].fillna(method='ffill')
+    FilledDown["State_TR"] = FilledDown["State_TR"].fillna(method='ffill')
+    FilledDown["State_SC"] = FilledDown["State_SC"].fillna('DOWN')
+    FilledDown["State_TR"] = FilledDown["State_TR"].fillna('DOWN')
+    AddedCustom1 = FilledDown.copy()
+    AddedCustom1["State"] = np.where((AddedCustom1["State_SC"] == "UP") & (AddedCustom1["State_TR"] == "UP"),"UP","DOWN")
+    AddedCustom1.drop(columns=["ToolName"])
+    return AddedCustom1
+
 def Tools_states_material_suppliers():
     #Tool_states = pd.read_csv("20221125\Tool_States.csv")
     #Tools_Parents = pd.read_csv("20221125\Tools_Parents.csv")
@@ -868,6 +896,90 @@ def Tools_states_material_suppliers():
             
             GroupedRows = pd.concat([GroupedRows,NoRepeats])
             
+
+    MergedQueries = pd.merge(
+            GroupedRows, 
+            LithoClusters, 
+            left_on=["ENT_NAME"], 
+            right_on=["ToolName"], 
+            how="left",
+            suffixes=["","_y"]
+        )
+
+
+    ClusterStates = MergedQueries[(MergedQueries["LithoCluster"].notnull()) & (MergedQueries["LithoCluster"] != "")]
+
+
+    GrClusterStates = pd.DataFrame(columns=[
+        'EVENT_ROW_ID', 
+        'Datim', 
+        'State_SC', 
+        'State_TR', 
+        'State',
+        'FACILITY',
+        'LithoCluster'
+        
+    ])
+
+    facilities = ClusterStates["FACILITY"].unique()
+
+    for facility in facilities:
+        facilitydata = ClusterStates[Removed_Columns["FACILITY"] == facility]
+        Litho_Clusters = facilitydata["LithoCluster"].unique()
+        
+        for LithoCluster in Litho_Clusters:
+            data = facilitydata[facilitydata["LithoCluster"] == LithoCluster]
+            ClusterStatesData = GetClusterStates(data)
+            ClusterStatesData["FACILITY"] = facility
+            ClusterStatesData["LithoCluster"] = LithoCluster
+            
+            GrClusterStates = pd.concat([GrClusterStates,ClusterStatesData])
+            print(facility,LithoCluster)
+            
+
+    GrClusterStates = pd.DataFrame(columns=[
+        'EVENT_ROW_ID', 
+        'Datim', 
+        'State_SC', 
+        'State_TR', 
+        'State',
+        'FACILITY',
+        'LithoCluster'
+        
+    ])
+
+    facilities = ClusterStates["FACILITY"].unique()
+
+    for facility in facilities:
+        facilitydata = ClusterStates[Removed_Columns["FACILITY"] == facility]
+        LithoClusters = facilitydata["LithoCluster"].unique()
+        
+        for LithoCluster in LithoClusters:
+            data = facilitydata[facilitydata["LithoCluster"] == LithoCluster]
+            ClusterStatesData = GetClusterStates(data)
+            ClusterStatesData["FACILITY"] = facility
+            ClusterStatesData["LithoCluster"] = LithoCluster
+            
+            GrClusterStates = pd.concat([GrClusterStates,ClusterStatesData])
+            print(facility,LithoCluster)
+            
+
+    GrExpand = AddedCustom1.copy()
+    GrExpand["FACILITY"] = facility
+    GrExpand["LithoCluster"] = lithocluster
+    GrExpand["LithoCluster"] = ["LithoCluster_" + str(x) for x in GrExpand["LithoCluster"]]
+    GrReplace = GrExpand.copy()
+    GrRename = GrReplace.rename(columns={
+        "LithoCluster":"Ent_Name"
+    })
+    TrStates = GrRename.copy()
+    TrStates["Ent_Name"] = TrStates["Ent_Name"].str.replace("LithoCluster_","TR")
+    TrStates["State"] = TrStates["State_TR"]
+    NonClusters = MergedQueries[MergedQueries["LithoCluster"].isnull()]
+    NonClustersRC = NonClusters.drop(columns=["LithoCluster"])
+    Combined = pd.concat([NonClustersRC, GrRename, TrStates])
+    Combined = Combined.rename(columns={"Ent_Name": "Tool"})
+    return Combined
         
 
 #Start of execution
@@ -982,5 +1094,11 @@ for fo_row_id in fo_row_ids:
     df = tool_states[tool_states["fo_row_id"] == fo_row_id]
     tool_states_df = Transform_states(df,fo_row_id)
     tool_states_result = pd.concat([tool_states_result,tool_states_df])
-    
+
+
+
+#17. Tools_states_material_suppliers
+
+Tools_states_material_suppliers_df = Tools_states_material_suppliers()
+
 print(tool_states_result.head())
