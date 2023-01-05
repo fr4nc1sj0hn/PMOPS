@@ -190,8 +190,8 @@ def FAB300_with_tool_names(Tools_with_reservations,Tools_Parents):
 #IIO_raw_reservations
 def IIO_without_modules(df):
     df = df.reset_index()
-    df["Begin"] = pd.to_datetime(df["Begin"],format="%d/%m/%Y %H:%M")
-    df["End"] = pd.to_datetime(df["End"],format="%d/%m/%Y %H:%M")
+    df["Begin"] = pd.to_datetime(df["Begin"],format="%Y-%m-%d %H:%M")
+    df["End"] = pd.to_datetime(df["End"],format="%Y-%m-%d %H:%M")
     df = df.sort_values(["WBS","Tool","FACILITY","Module","Begin"])
     df["End_Down"] = df["End"].shift(1)
     df["Adjacent_Down"] = np.where(df['Begin']==df['End_Down'], True, False)
@@ -331,7 +331,7 @@ def Fab300_iio_merger(df):
         "Description": "Description"
     })
     Expanded_IIO_without_modules = Expanded_IIO_without_modules.drop(
-        columns=["FACILITY_y","Modules","Tool_y","IIO_User_id","WBS_y",'Index', 'Index_y', 'Index2', 'Index3']
+        columns=["FACILITY_y","Tool_y","WBS_y",'Index', 'Index_y', 'Index2', 'Index3']
     )
     
     return Expanded_IIO_without_modules
@@ -344,6 +344,7 @@ def Final_Fab300_IIO_reservations(IIO_without_modules,Fab300withtoolnames,Fab300
     Fab300_IIO_overlaps_ids["IIO_End"] = pd.to_datetime(Fab300_IIO_overlaps_ids["IIO_End"],format="%Y-%m-%d %H:%M")
     
     AddedCustom = Fab300_IIO_overlaps_ids.copy()
+
     AddedCustom['Modules'] = AddedCustom['Modules'].fillna('')
     AddedCustom["Fab300_Duration"] = (AddedCustom["Fab300_End"] - AddedCustom["Fab300_Begin"])/np.timedelta64(1, 'h')
     AddedCustom1 = AddedCustom.copy()
@@ -594,7 +595,7 @@ def GetMaxDate(row,col1, col2):
 
 
 def Final_Fab300_IIO_Reservations_clustered(df):
-    MergedQueries = Final_Fab300_IIO_reservations.merge(
+    MergedQueries = df.merge(
         LithoClusters, 
         how='left',
         left_on = ["Tool"],
@@ -790,6 +791,16 @@ def Transform_states(df,fo_row_id):
         return RemoveTmpClmns
 
 
+def replaceStateValueSPC(row):
+    if ("ILIME" in row["Area"]) and (row["ENT_NAME"] in AllTracks):
+        return row["State"].replace("SPC","UP")
+    return  row["State"].replace("SPC","DOWN")
+
+def replaceStateValueOCAP(row):
+    if (row["ENT_NAME"] in AllTracks):
+        return row["State"].replace("OCAP","UP")
+    return  row["State"].replace("OCAP","DOWN")
+
 def RemoveRepeats(df):
     RC = df.drop(columns=["ENT_NAME","FACILITY"])
     sorted_rows = RC.sort_values(["EVENT_ROW_ID"])
@@ -964,9 +975,7 @@ def Tools_states_material_suppliers():
             print(facility,LithoCluster)
             
 
-    GrExpand = AddedCustom1.copy()
-    GrExpand["FACILITY"] = facility
-    GrExpand["LithoCluster"] = lithocluster
+    GrExpand = GrClusterStates.copy()
     GrExpand["LithoCluster"] = ["LithoCluster_" + str(x) for x in GrExpand["LithoCluster"]]
     GrReplace = GrExpand.copy()
     GrRename = GrReplace.rename(columns={
@@ -983,17 +992,18 @@ def Tools_states_material_suppliers():
         
 
 #Start of execution
-df = pd.read_csv("Fab300_raw_reservations.csv")
-Tools_with_reservations = processFab300RawReservations(df)
+folder = "C:\\Users\\fpicaso\\Repos\\PMOPS\\20221125\\"
+Fab300_Raw = pd.read_csv(folder + "5. Fab300 Raw Reservations.csv")
+Tools_with_reservations = processFab300RawReservations(Fab300_Raw)
 
-Tools_Parents = pd.read_csv("Tools_Parents.csv")
+Tools_Parents = pd.read_csv(folder + "Tools_Parents.csv")
 Tools_Parents["CSIM_TIMESTAMP"] = pd.to_datetime(Tools_Parents["CSIM_TIMESTAMP"])
 
 df_FAB300_with_tool_names = FAB300_with_tool_names(Tools_with_reservations,Tools_Parents)
 
 
-df = pd.read_csv("IIO_raw_reservations - test.csv")
-df_IIO_without_modules = IIO_without_modules(df)
+IIO_raw = pd.read_csv(folder + "4. IIO_raw_reservations .csv")
+df_IIO_without_modules = IIO_without_modules(IIO_raw)
 
 
 #Fab300_IIO_overlaps_ids
@@ -1019,7 +1029,6 @@ columns={
 })
 
 fab_iio_together  = pd.concat([UnPivot_fab, UnPivot_iio], ignore_index=True)
-
 
 columns = [
     'Fab300_Res_id', 
@@ -1062,6 +1071,7 @@ for wbs in WBSs:
             
 
 #Final_Fab300_IIO_reservations
+
 Final_Fab300_IIO_reservations_df = Final_Fab300_IIO_reservations(df_IIO_without_modules,df_FAB300_with_tool_names,Fab300_IIO_overlaps_ids)
 
 
@@ -1070,14 +1080,14 @@ Final_Fab300_IIO_reservations_df["Begin"] = pd.to_datetime(Final_Fab300_IIO_rese
 Final_Fab300_IIO_reservations_df["End"] = pd.to_datetime(Final_Fab300_IIO_reservations_df["End"],format="%Y-%m-%d %H:%M")
 
 
-LithoClusters = pd.read_csv("C:\\Users\\fpicaso\\Repos\\PMOPS\\20221125\\LithoClusters.csv")
+LithoClusters = pd.read_csv(folder + "LithoClusters.csv")
 
 Final_Fab300_IIO_Reservations_clustered_df = Final_Fab300_IIO_Reservations_clustered(Final_Fab300_IIO_reservations_df)
 
 
 #Tool States and Transform States
 
-tool_states = pd.read_csv("C:/Users/fpicaso/Repos/PMOPS/20221125/Tool_States.csv")
+tool_states = pd.read_csv(folder + "Tool_States.csv")
 tool_states["Datim"] = pd.to_datetime(tool_states["Datim"],format="%m/%d/%Y %H:%M")
 
 
@@ -1098,6 +1108,8 @@ for fo_row_id in fo_row_ids:
 
 
 #17. Tools_states_material_suppliers
+AllTracks = ["TR1000", "TR1950", "TR1970", "TR2000", "TR3300", "TR3400", "TRDSA", "TRMTM", "TRDUOS"]
+
 
 Tools_states_material_suppliers_df = Tools_states_material_suppliers()
 
