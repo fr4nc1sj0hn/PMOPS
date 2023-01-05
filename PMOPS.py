@@ -952,9 +952,9 @@ def Tools_states_material_suppliers():
 
     for facility in facilities:
         facilitydata = ClusterStates[Removed_Columns["FACILITY"] == facility]
-        LithoClusters = facilitydata["LithoCluster"].unique()
+        Litho_Clusters = facilitydata["LithoCluster"].unique()
         
-        for LithoCluster in LithoClusters:
+        for LithoCluster in Litho_Clusters:
             data = facilitydata[facilitydata["LithoCluster"] == LithoCluster]
             ClusterStatesData = GetClusterStates(data)
             ClusterStatesData["FACILITY"] = facility
