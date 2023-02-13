@@ -6,6 +6,8 @@ from datetime import date,datetime
 import warnings
 warnings.filterwarnings('ignore')
 
+
+
 def identify_reservations(df):
     try:
         Fab300_raw_reservations = df.copy()
@@ -597,6 +599,7 @@ def GetMaxDate(row,col1, col2):
 
 
 def Final_Fab300_IIO_Reservations_clustered(df):
+    df = Final_Fab300_IIO_reservations_df.copy()
     MergedQueries = df.merge(
         LithoClusters, 
         how='left',
@@ -668,24 +671,7 @@ def Final_Fab300_IIO_Reservations_clustered(df):
     TR_SC_ovl_info["Overlap"]  = TR_SC_ovl_info.apply(lambda row: GetOverlapIndicator(row),axis=1)
 
     collated = pd.DataFrame(columns=[
-        'Begin', 
-        'Cluster', 
-        'Description', 
-        'End', 
-        'Fab300_Duration',
-        'Fab300_User_id', 
-        'FACILITY', 
-        'IIO_Duration', 
-        'IIO_User_id', 
-        'Modules',
-        'Tool', 
-        'WBS', 
-        'LithoCluster', 
         'id', 
-        'Scanners.Begin', 
-        'Scanners.End',
-        'Scanners.id', 
-        'Overlap',
         'Independent'
     ])
 
@@ -694,12 +680,14 @@ def Final_Fab300_IIO_Reservations_clustered(df):
 
     for id in ids:
         grp = TR_SC_ovl_info[TR_SC_ovl_info["id"] == id]
+        grp =grp[["id","Overlap"]]
         grp["Independent"] = CheckForOverlaps(grp)
-        
+        grp = grp.drop(columns=['Overlap']).drop_duplicates()
         collated = pd.concat([collated,grp])
-
+    
+    collated = collated.drop_duplicates()
     TR_pure = collated[collated["Independent"] == True]
-    TR_pure = TR_pure[["id"]]
+    TR_pure = TR_pure[["id","Independent"]]
 
     TR_merge  = TR_pure.merge(
         TR_index, 
@@ -707,7 +695,7 @@ def Final_Fab300_IIO_Reservations_clustered(df):
         left_on = ["id"],
         right_on = ["id"]
     )
-    TR_rmv = TR_merge.drop(columns=["id"])
+    TR_rmv = TR_merge.drop(columns=["id","Independent"])
 
 
     SC_filt_2 = TR_SC_ovl_info[
@@ -731,6 +719,7 @@ def Final_Fab300_IIO_Reservations_clustered(df):
         left_on = ["id"],
         right_on = ["Scanners.id"]
     )
+    SC_pure = SC_pure.drop(columns=["Scanners.id"])
     SC_rename = SC_pure.rename(
     columns={
         "Begin_y": "TR_Begin", 
@@ -749,7 +738,10 @@ def Final_Fab300_IIO_Reservations_clustered(df):
     Everything = pd.concat([NoClusters, TR_rmv])
     Everything = pd.concat([Everything,SC_final])
     Everything.drop_duplicates(inplace=True)
-
+    Everything = Everything.drop(columns=["LithoCluster"])
+    index2 = range(0,len(Everything))
+    Everything["id"] = index2
+    
     return Everything
 
 
@@ -967,7 +959,74 @@ def replaceStateValueOCAP(row):
     if (row["ENT_NAME"] in AllTracks):
         return row["State"].replace("OCAP","UP")
     return  row["State"].replace("OCAP","DOWN")
+
+def OverlapStatusWithReservations(df,Facility,Tool):
+    RC = df.drop(columns=["Facility", "Tool"])
+    SortedRows = RC.sort_values(by=["Datim","BeginEndFlag"],ascending=[True,False])
+    FilledDown = SortedRows.apply(lambda x: x.fillna(method='ffill'))
+    FilteredRows = FilledDown[
+        (FilledDown["BeginEndFlag"] != "End")
+        & (FilledDown["BeginEndFlag"].notnull())
+    ]
+    if FilteredRows.shape[0] == 0:
+        blank = pd.DataFrame(columns=df.columns)
+        blank = blank.append({'Facility':Facility, 'Tool':Tool},ignore_index=True)
         
+        return blank
+    return FilteredRows
+
+def Reservations_Tools_States_Details(Tools_states_material_suppliers_df,Final_Fab300_IIO_Reservations_clustered_df):
+    States = Tools_states_material_suppliers_df.drop(columns=["EVENT_ROW_ID"])
+    States = States.rename(columns={
+        "FACILITY": "Facility"
+    })
+    Reservations = Final_Fab300_IIO_Reservations_clustered_df.copy()
+    Reservations["Duration"] = (Reservations["End"] - Reservations["Begin"])/np.timedelta64(1, 'h')
+    Removed_Other_Columns = Reservations[["FACILITY", "Tool", "Begin", "End", "Duration", "id"]]
+    Unpivoted_Columns = pd.melt(Removed_Other_Columns, id_vars=["FACILITY", "Tool", "id", "Duration"], 
+                    value_vars=["Begin", "End"])
+    Unpivoted_Columns = Unpivoted_Columns.rename(columns={
+        "variable": "BeginEndFlag",
+        "value": "Datim",
+        "FACILITY": "Facility",
+    })
+    Appended_Query = pd.concat([States,Unpivoted_Columns])
+
+    GroupedRows = pd.DataFrame(
+        columns = [
+            'Facility', 
+            'Tool', 
+            'Datim', 
+            'State', 
+            'State_SC', 
+            'State_TR', 
+            'id',
+            'Duration', 
+            'BeginEndFlag'
+        ]
+    )
+    i = 0
+    facilities = Appended_Query["Facility"].unique()
+
+    for facility in facilities:
+        facilityData = Appended_Query[Appended_Query["Facility"] == facility]
+
+        tools = facilityData["Tool"].unique()
+
+        for tool in tools:
+            i = i + 1
+            tooldata = facilityData[facilityData["Tool"] == tool]
+            df = OverlapStatusWithReservations(tooldata,facility,tool)
+            df["Facility"] = facility
+            df["Tool"] = tool
+            GroupedRows = pd.concat([GroupedRows,df])
+
+    ExpandedRows = GroupedRows.drop(columns=["BeginEndFlag"])
+    ReplacedValue = ExpandedRows.copy()
+    ReplacedValue["State"] = ReplacedValue["State"].fillna("UP")
+    ReplacedValue["State"] = ReplacedValue["State"].apply(lambda x: "UP" if len(x)==0 else x)
+    return ReplacedValue
+    
 
 #Start of execution
 folder = "C:\\Users\\fpicaso\\Repos\\PMOPS\\20230130\\"
@@ -1103,4 +1162,12 @@ for fo_row_id in fo_row_ids:
 AllTracks = ["TR1000", "TR1950", "TR1970", "TR2000", "TR3300", "TR3400", "TRDSA", "TRMTM", "TRDUOS"]
 
 Tools_states_material_suppliers_df = Tools_states_material_suppliers()
-print(Tools_states_material_suppliers_df.shape)
+
+
+
+#18. Reservations_Tools_States_Details
+
+Reservations_Tools_States_Details_df = Reservations_Tools_States_Details(Tools_states_material_suppliers_df,Final_Fab300_IIO_Reservations_clustered_df)
+Reservations_Tools_States_Details_df
+
+print(Reservations_Tools_States_Details_df.shape)
