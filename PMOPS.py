@@ -1026,7 +1026,50 @@ def Reservations_Tools_States_Details(Tools_states_material_suppliers_df,Final_F
     ReplacedValue["State"] = ReplacedValue["State"].fillna("UP")
     ReplacedValue["State"] = ReplacedValue["State"].apply(lambda x: "UP" if len(x)==0 else x)
     return ReplacedValue
-    
+
+def CountBillableTime(df):
+    x = df.sort_values(by=["Datim"])
+    FirstRow = x.iloc[0]
+    LastRow = x.iloc[-1]
+    FullDuration = FirstRow["Duration"]
+    Duration = (LastRow["Datim"] - FirstRow["Datim"])/np.timedelta64(1, 'h')
+    NumberOfRows = x.shape[0]
+    if NumberOfRows == 1:
+        if FirstRow["State"] == "UP":
+            GoodBadDuration = FullDuration
+        else:
+            GoodBadDuration = 0
+    else:
+        if NumberOfRows == 2:
+            if FirstRow["State"] == "UP":
+                GoodBadDuration = 0
+            else:
+                if Duration / FullDuration < 0.5:
+                    GoodBadDuration = FullDuration - Duration
+                else:
+                    GoodBadDuration = 0
+        else:
+            GoodBadDuration = 0
+    return GoodBadDuration
+
+def Final_Reservations_Overlapped_with_Tool_States(Reservations_Tools_States_Details_df,Final_Fab300_IIO_Reservations_clustered_df):
+    IDs = Reservations_Tools_States_Details_df["id"].dropna().unique()
+    billables = pd.DataFrame(columns=["id","BillableDuration"])
+    for id in IDs:
+        df = Reservations_Tools_States_Details_df[Reservations_Tools_States_Details_df["id"] == id]
+        billable = CountBillableTime(df)
+        billables = billables.append({'id':id, 'BillableDuration':billable},ignore_index=True)
+
+    billables["BillableDuration"] = round(billables["BillableDuration"].astype(float) * 4,0) / 4
+    Merge = pd.merge(
+            Final_Fab300_IIO_Reservations_clustered_df, 
+            billables, 
+            left_on=["id"], 
+            right_on=["id"], 
+            how="left",
+            suffixes=["","_y"]
+        )
+    return Merge
 
 #Start of execution
 folder = "C:\\Users\\fpicaso\\Repos\\PMOPS\\20230130\\"
@@ -1136,9 +1179,6 @@ Final_Fab300_IIO_Reservations_clustered_df = Final_Fab300_IIO_Reservations_clust
 
 #Tool States and Transform States
 
-
-#Tool States and Transform States
-
 tool_states = pd.read_csv(folder + "Tool_States.csv")
 tool_states["Datim"] = pd.to_datetime(tool_states["Datim"],format="%d/%m/%Y %H:%M")
 
@@ -1168,6 +1208,8 @@ Tools_states_material_suppliers_df = Tools_states_material_suppliers()
 #18. Reservations_Tools_States_Details
 
 Reservations_Tools_States_Details_df = Reservations_Tools_States_Details(Tools_states_material_suppliers_df,Final_Fab300_IIO_Reservations_clustered_df)
-Reservations_Tools_States_Details_df
 
-print(Reservations_Tools_States_Details_df.shape)
+
+#19. Final_Reservations_Overlapped_with_Tool_States
+Final_Reservations_Overlapped_with_Tool_States_df = Final_Reservations_Overlapped_with_Tool_States(Reservations_Tools_States_Details_df,Final_Fab300_IIO_Reservations_clustered_df)
+print(Final_Reservations_Overlapped_with_Tool_States_df.shape)
